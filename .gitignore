@@ -1,0 +1,17 @@
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+
+android/.gradle/
+ios/Pods/
+macos/Pods/
+
+*.iml
+
+__pycache__/
+*.py[cod]
+.venv/
+.env
+database/mysql/generated/

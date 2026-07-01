@@ -1,0 +1,29 @@
+현재 구성에서는 관리자 계정이 DB seed로 생성됩니다.
+초기 관리자:
+email: admin@aerogo.local
+role: admin
+status: active
+email_verified: true
+관련 파일:
+[database/mysql/02_seed.sql](C:/Users/USER/Documents/AeroGo/database/mysql/02_seed.sql)
+다만 지금 seed의 password_hash는 실제 로그인 가능한 해시가 아니라 placeholder입니다.
+'$2b$12$replace_with_real_admin_password_hash'
+즉, 현재 상태는 관리자 계정 레코드는 만들어지지만, 실제 로그인 비밀번호는 아직 설정되지 않은 상태입니다.
+권장 방식은 다음 중 하나입니다.
+초기 설치용 관리자 생성 스크립트 추가
+python backend/tools/create_admin.py
+이메일, 비밀번호, 표시 이름을 입력받아 MySQL에 관리자 생성
+가장 현실적이고 안전한 방식입니다.
+
+일반 회원가입 후 DB에서 role 변경
+UPDATE users
+SET role = 'admin'
+WHERE email = 'someone@example.com';
+개발 중에는 간단하지만 운영에서는 감사 로그와 권한 검증이 필요합니다.
+
+관리자 전용 초대 코드/초대 링크
+기존 관리자가 초대 링크 발급
+초대받은 이메일만 관리자 가입 가능
+나중에 운영형 서비스로 갈 때 가장 깔끔합니다.
+
+지금 프로젝트 단계에서는 1번, 관리자 생성 스크립트를 추가하는 게 제일 좋습니다.
