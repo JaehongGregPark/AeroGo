@@ -1,11 +1,17 @@
 import 'dart:math' as math;
 import 'dart:convert';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:shared_preferences/shared_preferences.dart';
 
-void main() {
-  runApp(const AeroGoApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  final initialEnvironmentSettings = await _loadInitialEnvironmentSettings();
+  runApp(
+    AeroGoApp(initialEnvironmentSettings: initialEnvironmentSettings),
+  );
 }
 
 enum UserRole { user, admin }
@@ -14,8 +20,162 @@ enum GameMode { humanVsHuman, humanVsAi, aiVsAi }
 
 enum AiDifficulty { beginner, intermediate, advanced }
 
+enum StoneSoundVolume { loud, normal, small }
+
+enum CountdownVoice { male, female }
+
+class UserEnvironmentSettings {
+  UserEnvironmentSettings({
+    required this.showReferenceDiagram,
+    required this.autoSaveOwnRecords,
+    required this.autoSaveObservedRecords,
+    required this.autoReplayIntervalSeconds,
+    required this.showMoveNumbers,
+    required this.playStoneSoundInGame,
+    required this.playStoneSoundInRecordReview,
+    required this.playCountdownSound,
+    required this.stoneSoundVolume,
+    required this.countdownVoice,
+  });
+
+  factory UserEnvironmentSettings.defaults() {
+    return UserEnvironmentSettings(
+      showReferenceDiagram: true,
+      autoSaveOwnRecords: true,
+      autoSaveObservedRecords: false,
+      autoReplayIntervalSeconds: 3,
+      showMoveNumbers: false,
+      playStoneSoundInGame: true,
+      playStoneSoundInRecordReview: true,
+      playCountdownSound: true,
+      stoneSoundVolume: StoneSoundVolume.normal,
+      countdownVoice: CountdownVoice.female,
+    );
+  }
+
+  factory UserEnvironmentSettings.fromJson(Map<String, dynamic> json) {
+    final defaults = UserEnvironmentSettings.defaults();
+    return UserEnvironmentSettings(
+      showReferenceDiagram: json['showReferenceDiagram'] as bool? ??
+          defaults.showReferenceDiagram,
+      autoSaveOwnRecords:
+          json['autoSaveOwnRecords'] as bool? ?? defaults.autoSaveOwnRecords,
+      autoSaveObservedRecords: json['autoSaveObservedRecords'] as bool? ??
+          defaults.autoSaveObservedRecords,
+      autoReplayIntervalSeconds: json['autoReplayIntervalSeconds'] as int? ??
+          defaults.autoReplayIntervalSeconds,
+      showMoveNumbers:
+          json['showMoveNumbers'] as bool? ?? defaults.showMoveNumbers,
+      playStoneSoundInGame: json['playStoneSoundInGame'] as bool? ??
+          defaults.playStoneSoundInGame,
+      playStoneSoundInRecordReview:
+          json['playStoneSoundInRecordReview'] as bool? ??
+              defaults.playStoneSoundInRecordReview,
+      playCountdownSound:
+          json['playCountdownSound'] as bool? ?? defaults.playCountdownSound,
+      stoneSoundVolume: StoneSoundVolume.values.firstWhere(
+        (value) => value.name == json['stoneSoundVolume'],
+        orElse: () => defaults.stoneSoundVolume,
+      ),
+      countdownVoice: CountdownVoice.values.firstWhere(
+        (value) => value.name == json['countdownVoice'],
+        orElse: () => defaults.countdownVoice,
+      ),
+    );
+  }
+
+  bool showReferenceDiagram;
+  bool autoSaveOwnRecords;
+  bool autoSaveObservedRecords;
+  int autoReplayIntervalSeconds;
+  bool showMoveNumbers;
+  bool playStoneSoundInGame;
+  bool playStoneSoundInRecordReview;
+  bool playCountdownSound;
+  StoneSoundVolume stoneSoundVolume;
+  CountdownVoice countdownVoice;
+
+  UserEnvironmentSettings copy() {
+    return UserEnvironmentSettings(
+      showReferenceDiagram: showReferenceDiagram,
+      autoSaveOwnRecords: autoSaveOwnRecords,
+      autoSaveObservedRecords: autoSaveObservedRecords,
+      autoReplayIntervalSeconds: autoReplayIntervalSeconds,
+      showMoveNumbers: showMoveNumbers,
+      playStoneSoundInGame: playStoneSoundInGame,
+      playStoneSoundInRecordReview: playStoneSoundInRecordReview,
+      playCountdownSound: playCountdownSound,
+      stoneSoundVolume: stoneSoundVolume,
+      countdownVoice: countdownVoice,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'showReferenceDiagram': showReferenceDiagram,
+      'autoSaveOwnRecords': autoSaveOwnRecords,
+      'autoSaveObservedRecords': autoSaveObservedRecords,
+      'autoReplayIntervalSeconds': autoReplayIntervalSeconds,
+      'showMoveNumbers': showMoveNumbers,
+      'playStoneSoundInGame': playStoneSoundInGame,
+      'playStoneSoundInRecordReview': playStoneSoundInRecordReview,
+      'playCountdownSound': playCountdownSound,
+      'stoneSoundVolume': stoneSoundVolume.name,
+      'countdownVoice': countdownVoice.name,
+    };
+  }
+}
+
+Map<UserRole, UserEnvironmentSettings> _defaultEnvironmentSettingsByRole() {
+  return {
+    UserRole.user: UserEnvironmentSettings.defaults(),
+    UserRole.admin: UserEnvironmentSettings.defaults(),
+  };
+}
+
+Future<Map<UserRole, UserEnvironmentSettings>>
+    _loadInitialEnvironmentSettings() async {
+  final settingsByRole = _defaultEnvironmentSettingsByRole();
+  final preferences = await SharedPreferences.getInstance();
+  for (final userRole in UserRole.values) {
+    final value = preferences.getString(_environmentSettingsKey(userRole));
+    if (value == null) {
+      continue;
+    }
+    try {
+      settingsByRole[userRole] = UserEnvironmentSettings.fromJson(
+        jsonDecode(value) as Map<String, dynamic>,
+      );
+    } catch (_) {
+      settingsByRole[userRole] = UserEnvironmentSettings.defaults();
+    }
+  }
+  return settingsByRole;
+}
+
+Future<void> _persistEnvironmentSettings(
+  UserRole userRole,
+  UserEnvironmentSettings settings,
+) async {
+  final preferences = await SharedPreferences.getInstance();
+  await preferences.setString(
+    _environmentSettingsKey(userRole),
+    jsonEncode(settings.toJson()),
+  );
+  await preferences.reload();
+}
+
+String _environmentSettingsKey(UserRole userRole) {
+  return 'aerogo.environmentSettings.${userRole.name}';
+}
+
 class AeroGoApp extends StatelessWidget {
-  const AeroGoApp({super.key});
+  const AeroGoApp({
+    required this.initialEnvironmentSettings,
+    super.key,
+  });
+
+  final Map<UserRole, UserEnvironmentSettings> initialEnvironmentSettings;
 
   @override
   Widget build(BuildContext context) {
@@ -26,13 +186,20 @@ class AeroGoApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xff355c3a)),
         useMaterial3: true,
       ),
-      home: const AeroGoHomePage(),
+      home: AeroGoHomePage(
+        initialEnvironmentSettings: initialEnvironmentSettings,
+      ),
     );
   }
 }
 
 class AeroGoHomePage extends StatefulWidget {
-  const AeroGoHomePage({super.key});
+  const AeroGoHomePage({
+    required this.initialEnvironmentSettings,
+    super.key,
+  });
+
+  final Map<UserRole, UserEnvironmentSettings> initialEnvironmentSettings;
 
   @override
   State<AeroGoHomePage> createState() => _AeroGoHomePageState();
@@ -46,7 +213,23 @@ class _AeroGoHomePageState extends State<AeroGoHomePage> {
   String selectedMenu = '대국';
   final GoGame game = GoGame(size: 19);
   final GoAiPlayer aiPlayer = GoAiPlayer();
+  final AudioPlayer stoneSoundPlayer = AudioPlayer();
+  late final Map<UserRole, UserEnvironmentSettings> environmentSettingsByRole;
   bool aiThinking = false;
+
+  @override
+  void initState() {
+    super.initState();
+    environmentSettingsByRole = Map<UserRole, UserEnvironmentSettings>.from(
+      widget.initialEnvironmentSettings,
+    );
+  }
+
+  @override
+  void dispose() {
+    stoneSoundPlayer.dispose();
+    super.dispose();
+  }
 
   List<MenuSection> get menuSections {
     final sections = <MenuSection>[
@@ -76,6 +259,26 @@ class _AeroGoHomePageState extends State<AeroGoHomePage> {
           MenuItem('Redo', Icons.redo, () => setState(game.redo)),
           MenuItem('형세 분석', Icons.bar_chart, () => _selectMenu('형세 분석')),
           MenuItem('기보 저장/불러오기', Icons.description, () => _selectMenu('기보')),
+        ],
+      ),
+      MenuSection(
+        title: '중계/관전',
+        items: [
+          MenuItem(
+            '무료 중계 서비스',
+            Icons.live_tv,
+            () => _selectMenu('무료 중계 서비스'),
+          ),
+          MenuItem(
+            'AeroGo 중계방',
+            Icons.sensors,
+            () => _selectMenu('AeroGo 중계방'),
+          ),
+          MenuItem(
+            'SGF 가져오기',
+            Icons.upload_file,
+            () => _selectMenu('SGF 가져오기'),
+          ),
         ],
       ),
       MenuSection(
@@ -192,11 +395,15 @@ class _AeroGoHomePageState extends State<AeroGoHomePage> {
         game: game,
         aiThinking: aiThinking,
         gameMode: gameMode,
+        settings: environmentSettingsByRole[role]!,
         onPointTap: (row, col) {
           if (aiThinking || _isHumanInputBlocked) {
             return;
           }
           final played = game.play(row, col);
+          if (played) {
+            _playStoneSoundIfEnabled();
+          }
           setState(() {});
           if (played) {
             _playAiIfNeeded();
@@ -242,6 +449,40 @@ class _AeroGoHomePageState extends State<AeroGoHomePage> {
       );
     }
 
+    if (selectedMenu == '무료 중계 서비스') {
+      return const BroadcastServicePanel();
+    }
+
+    if (selectedMenu == 'AeroGo 중계방') {
+      return const InfoPanel(
+        title: 'AeroGo 중계방',
+        icon: Icons.sensors,
+        children: [
+          Text('외부 서비스와 독립적으로 AeroGo 안에서 대국을 중계하고 관전하는 화면입니다.'),
+          Text('권장 흐름: 관리자가 대국을 만들고 착수를 입력하면 사용자는 실시간 보드로 관전합니다.'),
+          Text(
+              '백엔드에 /games/live, /admin/live-games, /admin/live-games/{id}/moves API를 붙이면 이 메뉴에서 바로 목록과 보드를 표시할 수 있습니다.'),
+          Text(
+              '타이젬, KGS, Pandanet, OGS는 약관과 공개 API 여부를 확인한 뒤 허가된 데이터만 연결하는 방식이 안전합니다.'),
+        ],
+      );
+    }
+
+    if (selectedMenu == 'SGF 가져오기') {
+      return const InfoPanel(
+        title: 'SGF 가져오기',
+        icon: Icons.upload_file,
+        children: [
+          Text('공개 기보나 허가받은 SGF 파일을 AeroGo 표준 기보로 가져오는 화면입니다.'),
+          Text('현재 DB에는 game_records.sgf_text와 game_moves 저장 구조가 준비되어 있습니다.'),
+          Text(
+              '다음 단계에서는 SGF 업로드, 선수명/결과/날짜 파싱, 착수 재생, 출처 URL 기록 기능을 연결하면 됩니다.'),
+          Text(
+              '저작권 확인이 어려운 중계 데이터는 SGF 전문 저장 대신 출처 링크와 메타데이터만 저장하는 방식을 권장합니다.'),
+        ],
+      );
+    }
+
     if (selectedMenu == '기보 학습') {
       return const InfoPanel(
         title: '기보 학습 모드',
@@ -270,10 +511,15 @@ class _AeroGoHomePageState extends State<AeroGoHomePage> {
     }
 
     if (selectedMenu == '환경 설정') {
-      return const InfoPanel(
-        title: '환경 설정',
-        icon: Icons.settings,
-        children: [Text('CPU/GPU 가속, 캐시 위치, 분석 기본값을 관리하는 화면입니다.')],
+      return UserEnvironmentSettingsPanel(
+        role: role,
+        settings: environmentSettingsByRole[role]!,
+        onSave: (settings) {
+          setState(() {
+            environmentSettingsByRole[role] = settings;
+          });
+          return _persistEnvironmentSettings(role, settings);
+        },
       );
     }
 
@@ -418,12 +664,29 @@ class _AeroGoHomePageState extends State<AeroGoHomePage> {
     }
 
     setState(() {
-      aiPlayer.play(game, difficulty);
+      final played = aiPlayer.play(game, difficulty);
+      if (played) {
+        _playStoneSoundIfEnabled();
+      }
       aiThinking = false;
     });
 
     if (gameMode == GameMode.aiVsAi) {
       Future<void>.delayed(const Duration(milliseconds: 260), _playAiIfNeeded);
+    }
+  }
+
+  Future<void> _playStoneSoundIfEnabled() async {
+    final settings = environmentSettingsByRole[role]!;
+    if (!settings.playStoneSoundInGame) {
+      return;
+    }
+    try {
+      await stoneSoundPlayer.stop();
+      await stoneSoundPlayer.setVolume(settings.stoneSoundVolume.volume);
+      await stoneSoundPlayer.play(AssetSource('sounds/stone_click.wav'));
+    } catch (_) {
+      // Audio output can fail on devices without an initialized audio backend.
     }
   }
 }
@@ -552,6 +815,7 @@ class GameBoardPanel extends StatelessWidget {
     required this.game,
     required this.aiThinking,
     required this.gameMode,
+    required this.settings,
     required this.onPointTap,
     required this.onPass,
     required this.onAiMove,
@@ -561,6 +825,7 @@ class GameBoardPanel extends StatelessWidget {
   final GoGame game;
   final bool aiThinking;
   final GameMode gameMode;
+  final UserEnvironmentSettings settings;
   final void Function(int row, int col) onPointTap;
   final VoidCallback onPass;
   final VoidCallback onAiMove;
@@ -585,6 +850,10 @@ class GameBoardPanel extends StatelessWidget {
             const SizedBox(width: 12),
             Text(game.message),
             const Spacer(),
+            Text(settings.showMoveNumbers ? 'Move # ON' : 'Move # OFF'),
+            const SizedBox(width: 12),
+            Text(settings.playStoneSoundInGame ? 'Sound ON' : 'Sound OFF'),
+            const SizedBox(width: 12),
             Text('흑 포획 ${game.blackCaptures} | 백 포획 ${game.whiteCaptures}'),
           ],
         ),
@@ -615,7 +884,12 @@ class GameBoardPanel extends StatelessWidget {
                           }
                         },
                         child: SizedBox.expand(
-                          child: CustomPaint(painter: GoBoardPainter(game)),
+                          child: CustomPaint(
+                            painter: GoBoardPainter(
+                              game,
+                              showMoveNumbers: settings.showMoveNumbers,
+                            ),
+                          ),
                         ),
                       );
                     },
@@ -631,9 +905,10 @@ class GameBoardPanel extends StatelessWidget {
 }
 
 class GoBoardPainter extends CustomPainter {
-  GoBoardPainter(this.game);
+  GoBoardPainter(this.game, {required this.showMoveNumbers});
 
   final GoGame game;
+  final bool showMoveNumbers;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -685,12 +960,58 @@ class GoBoardPainter extends CustomPainter {
             ..style = PaintingStyle.stroke
             ..strokeWidth = 1.5,
         );
+        if (game.lastMove?.row == row && game.lastMove?.col == col) {
+          _drawLastMoveHighlight(canvas, center, radius);
+        }
+        final moveNumber = game.moveNumbers[row][col];
+        if (showMoveNumbers && moveNumber != null) {
+          _drawMoveNumber(canvas, center, radius, stone, moveNumber);
+        }
       }
     }
   }
 
   @override
   bool shouldRepaint(covariant GoBoardPainter oldDelegate) => true;
+
+  void _drawMoveNumber(
+    Canvas canvas,
+    Offset center,
+    double radius,
+    Stone stone,
+    int moveNumber,
+  ) {
+    final painter = TextPainter(
+      text: TextSpan(
+        text: moveNumber.toString(),
+        style: TextStyle(
+          color: stone == Stone.black ? Colors.white : Colors.black,
+          fontSize: math.max(9, radius * 0.82),
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      textAlign: TextAlign.center,
+      textDirection: TextDirection.ltr,
+    )..layout(maxWidth: radius * 1.8);
+    painter.paint(
+      canvas,
+      center - Offset(painter.width / 2, painter.height / 2),
+    );
+  }
+
+  void _drawLastMoveHighlight(Canvas canvas, Offset center, double radius) {
+    final outerPaint = Paint()
+      ..color = const Color(0xffffd54f)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(2.2, radius * 0.15);
+    final innerPaint = Paint()
+      ..color = const Color(0xff1f160e)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(1.2, radius * 0.07);
+
+    canvas.drawCircle(center, radius + 3, outerPaint);
+    canvas.drawCircle(center, radius + 6, innerPaint);
+  }
 
   List<(int, int)> _starPoints(int size) {
     final points = switch (size) {
@@ -702,6 +1023,271 @@ class GoBoardPainter extends CustomPainter {
       for (final row in points)
         for (final col in points) (row, col),
     ];
+  }
+}
+
+class UserEnvironmentSettingsPanel extends StatefulWidget {
+  const UserEnvironmentSettingsPanel({
+    required this.role,
+    required this.settings,
+    required this.onSave,
+    super.key,
+  });
+
+  final UserRole role;
+  final UserEnvironmentSettings settings;
+  final Future<void> Function(UserEnvironmentSettings settings) onSave;
+
+  @override
+  State<UserEnvironmentSettingsPanel> createState() =>
+      _UserEnvironmentSettingsPanelState();
+}
+
+class _UserEnvironmentSettingsPanelState
+    extends State<UserEnvironmentSettingsPanel> {
+  late UserEnvironmentSettings settings;
+  late TextEditingController autoReplayIntervalController;
+  String? intervalError;
+  bool saved = false;
+
+  @override
+  void initState() {
+    super.initState();
+    settings = widget.settings.copy();
+    autoReplayIntervalController = TextEditingController(
+      text: settings.autoReplayIntervalSeconds.toString(),
+    );
+  }
+
+  @override
+  void didUpdateWidget(UserEnvironmentSettingsPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.role != widget.role ||
+        oldWidget.settings != widget.settings) {
+      settings = widget.settings.copy();
+      autoReplayIntervalController.text =
+          settings.autoReplayIntervalSeconds.toString();
+      intervalError = null;
+      saved = false;
+    }
+  }
+
+  @override
+  void dispose() {
+    autoReplayIntervalController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.topLeft,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 840),
+        child: Card(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: DefaultTabController(
+              length: 2,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.settings),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              '환경 설정',
+                              style: Theme.of(context).textTheme.titleLarge,
+                            ),
+                            Text('${widget.role.label}별 개인 설정'),
+                          ],
+                        ),
+                      ),
+                      FilledButton.icon(
+                        onPressed: _save,
+                        icon: const Icon(Icons.save),
+                        label: const Text('저장'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  const TabBar(
+                    tabs: [
+                      Tab(icon: Icon(Icons.description), text: '기보/해설'),
+                      Tab(icon: Icon(Icons.volume_up), text: '소리'),
+                    ],
+                  ),
+                  SizedBox(
+                    height: 440,
+                    child: TabBarView(
+                      children: [
+                        _buildRecordCommentaryTab(),
+                        _buildSoundTab(),
+                      ],
+                    ),
+                  ),
+                  if (saved)
+                    const Text(
+                      '현재 사용자 설정으로 저장되었습니다.',
+                      style: TextStyle(color: Color(0xff1b6b35)),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRecordCommentaryTab() {
+    return ListView(
+      padding: const EdgeInsets.only(top: 16),
+      children: [
+        SwitchListTile(
+          title: const Text('참고도 표시'),
+          value: settings.showReferenceDiagram,
+          onChanged: (value) =>
+              _updateSettings(() => settings.showReferenceDiagram = value),
+        ),
+        SwitchListTile(
+          title: const Text('본인기보 자동저장'),
+          value: settings.autoSaveOwnRecords,
+          onChanged: (value) =>
+              _updateSettings(() => settings.autoSaveOwnRecords = value),
+        ),
+        SwitchListTile(
+          title: const Text('관전기보 자동저장'),
+          value: settings.autoSaveObservedRecords,
+          onChanged: (value) =>
+              _updateSettings(() => settings.autoSaveObservedRecords = value),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: TextField(
+            controller: autoReplayIntervalController,
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(
+              labelText: '수순자동진행 시간간격(초)',
+              helperText: '가능범위 1-360초',
+              errorText: intervalError,
+              border: const OutlineInputBorder(),
+            ),
+            onChanged: (_) {
+              if (intervalError != null) {
+                setState(() => intervalError = null);
+              }
+            },
+          ),
+        ),
+        SwitchListTile(
+          title: const Text('수순표시'),
+          subtitle: const Text('선택 시 흑돌 또는 백돌 위에 수순을 표시합니다.'),
+          value: settings.showMoveNumbers,
+          onChanged: (value) =>
+              _updateSettings(() => settings.showMoveNumbers = value),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSoundTab() {
+    return ListView(
+      padding: const EdgeInsets.only(top: 16),
+      children: [
+        SwitchListTile(
+          title: const Text('대국/관전시 착점소리'),
+          value: settings.playStoneSoundInGame,
+          onChanged: (value) =>
+              _updateSettings(() => settings.playStoneSoundInGame = value),
+        ),
+        SwitchListTile(
+          title: const Text('기보보기시 착점소리'),
+          value: settings.playStoneSoundInRecordReview,
+          onChanged: (value) => _updateSettings(
+              () => settings.playStoneSoundInRecordReview = value),
+        ),
+        SwitchListTile(
+          title: const Text('초읽기 소리'),
+          value: settings.playCountdownSound,
+          onChanged: (value) =>
+              _updateSettings(() => settings.playCountdownSound = value),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+          child: Text('착점소리', style: Theme.of(context).textTheme.titleSmall),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: SegmentedButton<StoneSoundVolume>(
+            segments: const [
+              ButtonSegment(value: StoneSoundVolume.loud, label: Text('크게')),
+              ButtonSegment(value: StoneSoundVolume.normal, label: Text('보통')),
+              ButtonSegment(value: StoneSoundVolume.small, label: Text('작게')),
+            ],
+            selected: {settings.stoneSoundVolume},
+            onSelectionChanged: (selected) {
+              _updateSettings(() => settings.stoneSoundVolume = selected.first);
+            },
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 24, 16, 6),
+          child: Text('초읽기소리음성', style: Theme.of(context).textTheme.titleSmall),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: SegmentedButton<CountdownVoice>(
+            segments: const [
+              ButtonSegment(value: CountdownVoice.male, label: Text('남성')),
+              ButtonSegment(value: CountdownVoice.female, label: Text('여성')),
+            ],
+            selected: {settings.countdownVoice},
+            onSelectionChanged: (selected) {
+              _updateSettings(() => settings.countdownVoice = selected.first);
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _save() async {
+    final seconds = int.tryParse(autoReplayIntervalController.text.trim());
+    if (seconds == null || seconds < 1 || seconds > 360) {
+      setState(() {
+        intervalError = '1초에서 360초 사이로 입력해 주세요.';
+        saved = false;
+      });
+      return;
+    }
+
+    settings.autoReplayIntervalSeconds = seconds;
+    await widget.onSave(settings.copy());
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      saved = true;
+      intervalError = null;
+    });
+  }
+
+  Future<void> _updateSettings(VoidCallback update) async {
+    update();
+    await widget.onSave(settings.copy());
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      saved = false;
+    });
   }
 }
 
@@ -748,6 +1334,74 @@ class InfoPanel extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class BroadcastServicePanel extends StatelessWidget {
+  const BroadcastServicePanel({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return InfoPanel(
+      title: '무료 중계 서비스',
+      icon: Icons.live_tv,
+      children: const [
+        Text('AeroGo와 함께 사용할 수 있는 무료 또는 공개 관전 후보입니다.'),
+        _BroadcastServiceRow(
+          name: '타이젬',
+          url: 'https://www.tygem.com/',
+          note: '한국 프로대국 생중계 일정과 웹대국실 관전에 적합합니다.',
+        ),
+        _BroadcastServiceRow(
+          name: 'KGS Go Server',
+          url: 'https://www.gokgs.com/',
+          note: '해외 공개 서버 관전과 대국 릴레이 문화가 강합니다.',
+        ),
+        _BroadcastServiceRow(
+          name: 'Pandanet / IGS',
+          url: 'https://pandanet-igs.com/',
+          note: '일본 기전과 인터넷 바둑 서버 관전에 활용할 수 있습니다.',
+        ),
+        _BroadcastServiceRow(
+          name: 'OGS',
+          url: 'https://online-go.com/',
+          note: '웹브라우저 기반 공개 바둑 서버입니다.',
+        ),
+        _BroadcastServiceRow(
+          name: '바둑TV',
+          url: 'https://www.tvbaduk.com/',
+          note: '공식 방송 편성표와 공개 영상 확인용으로 적합합니다.',
+        ),
+        Text('AeroGo 자동 연동은 공개 API, 제휴, 또는 허가받은 SGF 데이터부터 연결하는 방식이 안전합니다.'),
+      ],
+    );
+  }
+}
+
+class _BroadcastServiceRow extends StatelessWidget {
+  const _BroadcastServiceRow({
+    required this.name,
+    required this.url,
+    required this.note,
+  });
+
+  final String name;
+  final String url;
+  final String note;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(name, style: Theme.of(context).textTheme.titleSmall),
+          SelectableText(url),
+          Text(note),
+        ],
       ),
     );
   }
@@ -1168,18 +1822,22 @@ class GoGame {
   GoGame._copy({
     required this.size,
     required this.board,
+    required this.moveNumbers,
     required this.turn,
     required this.blackCaptures,
     required this.whiteCaptures,
     required this.message,
+    required this.lastMove,
   });
 
   int size;
   late List<List<Stone>> board;
+  late List<List<int?>> moveNumbers;
   Stone turn = Stone.black;
   int blackCaptures = 0;
   int whiteCaptures = 0;
   String message = '흑 차례입니다.';
+  BoardPoint? lastMove;
   final List<GameSnapshot> undoStack = [];
   final List<GameSnapshot> redoStack = [];
 
@@ -1192,10 +1850,12 @@ class GoGame {
   void reset(int newSize) {
     size = newSize;
     board = List.generate(size, (_) => List.generate(size, (_) => Stone.empty));
+    moveNumbers = List.generate(size, (_) => List.generate(size, (_) => null));
     turn = Stone.black;
     blackCaptures = 0;
     whiteCaptures = 0;
     message = '흑 차례입니다.';
+    lastMove = null;
     undoStack.clear();
     redoStack.clear();
   }
@@ -1204,10 +1864,12 @@ class GoGame {
     return GoGame._copy(
       size: size,
       board: board.map((row) => List<Stone>.from(row)).toList(),
+      moveNumbers: moveNumbers.map((row) => List<int?>.from(row)).toList(),
       turn: turn,
       blackCaptures: blackCaptures,
       whiteCaptures: whiteCaptures,
       message: message,
+      lastMove: lastMove,
     );
   }
 
@@ -1220,12 +1882,14 @@ class GoGame {
     redoStack.clear();
     final playedColor = turn;
     board[row][col] = turn;
+    moveNumbers[row][col] = currentMoveNumber + 1;
+    lastMove = BoardPoint(row, col);
     final captured = _captureAround(row, col);
     if (turn == Stone.black) {
-      blackCaptures += captured;
+      blackCaptures += captured.length;
       turn = Stone.white;
     } else {
-      whiteCaptures += captured;
+      whiteCaptures += captured.length;
       turn = Stone.black;
     }
     final who = actor ?? playedColor.label;
@@ -1236,6 +1900,7 @@ class GoGame {
   void passTurn() {
     undoStack.add(_snapshot());
     redoStack.clear();
+    lastMove = null;
     turn = turn == Stone.black ? Stone.white : Stone.black;
     message = turn == Stone.black ? '백 패스, 흑 차례입니다.' : '흑 패스, 백 차례입니다.';
   }
@@ -1287,8 +1952,8 @@ class GoGame {
     return '${letters[col]}${size - row}';
   }
 
-  int _captureAround(int row, int col) {
-    var captured = 0;
+  List<(int, int)> _captureAround(int row, int col) {
+    final captured = <(int, int)>[];
     final opponent = turn == Stone.black ? Stone.white : Stone.black;
     for (final point in _neighbors(row, col)) {
       if (board[point.$1][point.$2] != opponent) {
@@ -1296,9 +1961,10 @@ class GoGame {
       }
       final group = _group(point.$1, point.$2);
       if (_liberties(group).isEmpty) {
-        captured += group.length;
+        captured.addAll(group);
         for (final stone in group) {
           board[stone.$1][stone.$2] = Stone.empty;
+          moveNumbers[stone.$1][stone.$2] = null;
         }
       }
     }
@@ -1349,6 +2015,8 @@ class GoGame {
   GameSnapshot _snapshot() {
     return GameSnapshot(
       board.map((row) => List<Stone>.from(row)).toList(),
+      moveNumbers.map((row) => List<int?>.from(row)).toList(),
+      lastMove,
       turn,
       blackCaptures,
       whiteCaptures,
@@ -1357,16 +2025,40 @@ class GoGame {
 
   void _restore(GameSnapshot snapshot) {
     board = snapshot.board.map((row) => List<Stone>.from(row)).toList();
+    moveNumbers =
+        snapshot.moveNumbers.map((row) => List<int?>.from(row)).toList();
+    lastMove = snapshot.lastMove;
     turn = snapshot.turn;
     blackCaptures = snapshot.blackCaptures;
     whiteCaptures = snapshot.whiteCaptures;
   }
+
+  int get currentMoveNumber {
+    var highest = 0;
+    for (final row in moveNumbers) {
+      for (final moveNumber in row) {
+        if (moveNumber != null && moveNumber > highest) {
+          highest = moveNumber;
+        }
+      }
+    }
+    return highest;
+  }
 }
 
 class GameSnapshot {
-  GameSnapshot(this.board, this.turn, this.blackCaptures, this.whiteCaptures);
+  GameSnapshot(
+    this.board,
+    this.moveNumbers,
+    this.lastMove,
+    this.turn,
+    this.blackCaptures,
+    this.whiteCaptures,
+  );
 
   final List<List<Stone>> board;
+  final List<List<int?>> moveNumbers;
+  final BoardPoint? lastMove;
   final Stone turn;
   final int blackCaptures;
   final int whiteCaptures;
@@ -1398,6 +2090,14 @@ extension on AiDifficulty {
         AiDifficulty.beginner => 100,
         AiDifficulty.intermediate => 800,
         AiDifficulty.advanced => 3000,
+      };
+}
+
+extension on StoneSoundVolume {
+  double get volume => switch (this) {
+        StoneSoundVolume.loud => 1.0,
+        StoneSoundVolume.normal => 0.62,
+        StoneSoundVolume.small => 0.32,
       };
 }
 

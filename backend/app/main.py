@@ -1,4 +1,6 @@
+import json
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query, status
 from fastapi.responses import HTMLResponse
@@ -45,6 +47,22 @@ class AuthUserResponse(BaseModel):
     email_verified: bool
 
 
+class UserEnvironmentPreference(BaseModel):
+    show_reference_diagram: bool = True
+    auto_save_own_records: bool = True
+    auto_save_observed_records: bool = False
+    auto_replay_interval_seconds: int = Field(default=3, ge=1, le=360)
+    show_move_numbers: bool = False
+    play_stone_sound_in_game: bool = True
+    play_stone_sound_in_record_review: bool = True
+    play_countdown_sound: bool = True
+    stone_sound_volume: Literal["loud", "normal", "small"] = "normal"
+    countdown_voice: Literal["male", "female"] = "female"
+
+
+ENVIRONMENT_PREFERENCE_KEY = "environment"
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
@@ -86,6 +104,15 @@ def _send_signup_verification(connection, user_id: int, email: str) -> str:
     )
     cursor.close()
     return verify_url
+
+
+def _ensure_user_exists(connection, user_id: int) -> None:
+    cursor = connection.cursor(dictionary=True)
+    cursor.execute("SELECT id FROM users WHERE id = %s", (user_id,))
+    user = cursor.fetchone()
+    cursor.close()
+    if not user:
+        raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
 
 
 @app.get("/health")
@@ -300,3 +327,62 @@ def login(payload: LoginRequest) -> AuthUserResponse:
         display_name=user["display_name"],
         email_verified=bool(user["email_verified"]),
     )
+
+
+@app.get(
+    "/users/{user_id}/preferences/environment",
+    response_model=UserEnvironmentPreference,
+)
+def get_environment_preference(user_id: int) -> UserEnvironmentPreference:
+    with get_connection() as connection:
+        _ensure_user_exists(connection, user_id)
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute(
+            """
+            SELECT preference_value
+            FROM user_preferences
+            WHERE user_id = %s
+              AND preference_key = %s
+            """,
+            (user_id, ENVIRONMENT_PREFERENCE_KEY),
+        )
+        row = cursor.fetchone()
+        cursor.close()
+
+    if not row:
+        return UserEnvironmentPreference()
+
+    value = row["preference_value"]
+    if isinstance(value, str):
+        value = json.loads(value)
+    return UserEnvironmentPreference.model_validate(value)
+
+
+@app.put(
+    "/users/{user_id}/preferences/environment",
+    response_model=UserEnvironmentPreference,
+)
+def save_environment_preference(
+    user_id: int,
+    payload: UserEnvironmentPreference,
+) -> UserEnvironmentPreference:
+    preference_json = json.dumps(payload.model_dump(), ensure_ascii=False)
+    with get_connection() as connection:
+        _ensure_user_exists(connection, user_id)
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            INSERT INTO user_preferences (
+              user_id,
+              preference_key,
+              preference_value
+            ) VALUES (%s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+              preference_value = VALUES(preference_value),
+              updated_at = CURRENT_TIMESTAMP
+            """,
+            (user_id, ENVIRONMENT_PREFERENCE_KEY, preference_json),
+        )
+        cursor.close()
+
+    return payload

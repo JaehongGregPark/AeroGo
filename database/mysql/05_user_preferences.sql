@@ -1,0 +1,11 @@
+CREATE TABLE IF NOT EXISTS user_preferences (
+  user_id BIGINT UNSIGNED NOT NULL,
+  preference_key VARCHAR(100) NOT NULL,
+  preference_value JSON NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id, preference_key),
+  CONSTRAINT fk_user_preferences_user
+    FOREIGN KEY (user_id) REFERENCES users(id)
+    ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
