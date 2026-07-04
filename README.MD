@@ -2,6 +2,8 @@
 
 AeroGo는 바둑 대국, AI 분석, 기보 관리, 관리자 기능을 목표로 만드는 바둑 프로그램입니다. 현재 프로젝트에는 Flutter 앱 버전과 기존 Python/Tkinter 참고 구현이 함께 있습니다.
 
+Flutter 앱이 주력 버전이며, 바둑 규칙 엔진(`lib/game/go_engine.dart`)이 규칙의 기준(source of truth)입니다. `engine/` 아래의 Python 구현은 Tkinter 참고 앱(`app.py`) 전용 레거시 구현으로, Dart 엔진과 코드나 동작을 공유하지 않습니다. 두 엔진 간 관계와 정책은 [engine/README.md](engine/README.md)를 참고하세요.
+
 Flutter 앱은 일반사용자와 관리자 역할을 구분합니다. 관리자는 사용자 메뉴를 모두 포함하며, 추가로 시스템 전체 환경관리, 사용자 관리, 기보관리 메뉴를 사용할 수 있습니다.
 
 ## 주요 기능
@@ -45,14 +47,21 @@ Flutter 앱은 일반사용자와 관리자 역할을 구분합니다. 관리자
 ```text
 AeroGo/
 ├── lib/
-│   └── main.dart          # Flutter 앱 진입점
+│   ├── main.dart          # Flutter 앱 진입점 (runApp만 담당)
+│   ├── app.dart           # AeroGoApp (MaterialApp 설정)
+│   ├── models/            # enums, MenuSection/MenuItem, 환경설정 모델
+│   ├── game/
+│   │   └── go_engine.dart # Dart 바둑 규칙 엔진 + 휴리스틱 AI (source of truth)
+│   ├── widgets/            # 재사용 위젯 (헤더, 메뉴, 바둑판, 설정 패널 등)
+│   └── screens/
+│       └── home_page.dart # 메인 화면 상태 관리
 ├── pubspec.yaml           # Flutter 프로젝트 설정
 ├── docker-compose.yml     # 로컬 MySQL 실행 설정
 ├── backend/
 │   ├── Dockerfile         # FastAPI 백엔드 컨테이너
 │   ├── requirements.txt   # 백엔드 pip 패키지
 │   └── app/
-│       ├── main.py        # 회원가입/이메일 인증 API
+│       ├── main.py        # 회원가입/이메일 인증/세션 API
 │       ├── security.py    # 비밀번호 해시와 인증 토큰
 │       ├── emailer.py     # SMTP/개발용 콘솔 메일
 │       └── db.py          # MySQL 연결
@@ -61,15 +70,20 @@ AeroGo/
 │       ├── 01_schema.sql  # MySQL 테이블/인덱스/제약조건
 │       ├── 02_seed.sql    # 개발용 초기 데이터
 │       ├── 04_public_game_records_seed.sql # 공개 프로 기보 메타데이터 500건
+│       ├── 06_auth_sessions.sql # 로그인 세션 토큰 테이블
 │       └── README.md      # MySQL 구성 안내
 ├── app.py                 # Tkinter GUI 앱 진입점
 ├── engine/
+│   ├── README.md          # Python 엔진은 레거시 참고 구현이라는 점과 정책 설명
 │   ├── board.py           # 바둑판, 그룹, 활로 계산
 │   ├── game.py            # 대국 상태, 착수, 패스, Undo/Redo
 │   ├── rules.py           # 착수 검증, 자살수, 패 규칙
 │   └── sgf.py             # SGF 저장/불러오기
 ├── tests/
-│   └── test_game.py       # 엔진 단위 테스트
+│   └── test_game.py       # Python 엔진 단위 테스트
+├── test/
+│   ├── go_game_test.dart  # Dart 엔진 단위 테스트
+│   └── widget_test.dart   # AeroGoApp 스모크 테스트
 └── doc/
     └── 바둑플로그램 단계별 가이드.txt
 ```
@@ -277,7 +291,14 @@ POST /auth/register
 POST /auth/resend-verification
 GET  /auth/confirm-email?token=...
 POST /auth/login
+POST /auth/logout
+GET  /users/{user_id}/preferences/environment
+PUT  /users/{user_id}/preferences/environment
 ```
+
+`POST /auth/login`은 응답에 `session_token`과 `session_expires_at`을 포함합니다. `/auth/logout`과
+`/users/{user_id}/preferences/environment` 두 엔드포인트는 `Authorization: Bearer <session_token>`
+헤더가 필요하며, 본인 계정이 아니거나 관리자가 아니면 403을 반환합니다.
 
 백엔드를 직접 실행하려면:
 

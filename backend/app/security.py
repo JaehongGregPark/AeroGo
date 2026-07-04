@@ -79,6 +79,11 @@ def token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def generate_session_token() -> str:
+    """Opaque, high-entropy session token. Only its hash is stored server-side."""
+    return secrets.token_urlsafe(32)
+
+
 def parse_email_token(token: str) -> dict[str, Any]:
     try:
         body, signature = token.split(".", 1)

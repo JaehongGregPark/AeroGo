@@ -2,7 +2,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, status
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, EmailStr, Field
 
@@ -10,6 +10,7 @@ from .config import settings
 from .db import get_connection
 from .emailer import send_verification_email
 from .security import (
+    generate_session_token,
     hash_password,
     make_email_token,
     normalize_email,
@@ -45,6 +46,8 @@ class AuthUserResponse(BaseModel):
     status: str
     display_name: str | None
     email_verified: bool
+    session_token: str
+    session_expires_at: datetime
 
 
 class UserEnvironmentPreference(BaseModel):
@@ -113,6 +116,75 @@ def _ensure_user_exists(connection, user_id: int) -> None:
     cursor.close()
     if not user:
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
+
+
+def _session_expires_at() -> datetime:
+    return _utcnow() + timedelta(seconds=settings.session_max_age_seconds)
+
+
+def _create_session(connection, user_id: int) -> tuple[str, datetime]:
+    token = generate_session_token()
+    expires_at = _session_expires_at()
+    cursor = connection.cursor()
+    cursor.execute(
+        """
+        INSERT INTO auth_sessions (user_id, token_hash, expires_at)
+        VALUES (%s, %s, %s)
+        """,
+        (user_id, token_hash(token), expires_at),
+    )
+    cursor.close()
+    return token, expires_at
+
+
+def get_current_user(authorization: str | None = Header(default=None)) -> dict:
+    """Resolve the caller from a `Authorization: Bearer <token>` header.
+
+    Raises 401 if the header is missing/malformed or the session is
+    unknown, revoked, or expired.
+    """
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="인증 토큰이 필요합니다.",
+        )
+    token = authorization.split(" ", 1)[1].strip()
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="인증 토큰이 필요합니다.",
+        )
+
+    with get_connection() as connection:
+        cursor = connection.cursor(dictionary=True)
+        cursor.execute(
+            """
+            SELECT u.id, u.email, u.role, u.status, u.display_name, u.email_verified
+            FROM auth_sessions AS s
+            JOIN users AS u ON u.id = s.user_id
+            WHERE s.token_hash = %s
+              AND s.revoked_at IS NULL
+              AND s.expires_at > %s
+            """,
+            (token_hash(token), _utcnow()),
+        )
+        user = cursor.fetchone()
+        cursor.close()
+
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="세션이 만료되었거나 유효하지 않습니다.",
+        )
+    return user
+
+
+def _require_self_or_admin(current_user: dict, user_id: int) -> None:
+    if current_user["role"] != "admin" and int(current_user["id"]) != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="다른 사용자의 정보에 접근할 수 없습니다.",
+        )
 
 
 @app.get("/health")
@@ -318,6 +390,7 @@ def login(payload: LoginRequest) -> AuthUserResponse:
             (_utcnow(), user["id"]),
         )
         cursor.close()
+        session_token, session_expires_at = _create_session(connection, user["id"])
 
     return AuthUserResponse(
         id=user["id"],
@@ -326,14 +399,38 @@ def login(payload: LoginRequest) -> AuthUserResponse:
         status=user["status"],
         display_name=user["display_name"],
         email_verified=bool(user["email_verified"]),
+        session_token=session_token,
+        session_expires_at=session_expires_at,
     )
+
+
+@app.post("/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(current_user: dict = Depends(get_current_user)) -> None:
+    # get_current_user only resolves the user, not the raw token, so this
+    # revokes every active session for the caller rather than just one.
+    with get_connection() as connection:
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            UPDATE auth_sessions
+            SET revoked_at = %s
+            WHERE user_id = %s AND revoked_at IS NULL
+            """,
+            (_utcnow(), current_user["id"]),
+        )
+        cursor.close()
+    return None
 
 
 @app.get(
     "/users/{user_id}/preferences/environment",
     response_model=UserEnvironmentPreference,
 )
-def get_environment_preference(user_id: int) -> UserEnvironmentPreference:
+def get_environment_preference(
+    user_id: int,
+    current_user: dict = Depends(get_current_user),
+) -> UserEnvironmentPreference:
+    _require_self_or_admin(current_user, user_id)
     with get_connection() as connection:
         _ensure_user_exists(connection, user_id)
         cursor = connection.cursor(dictionary=True)
@@ -365,7 +462,9 @@ def get_environment_preference(user_id: int) -> UserEnvironmentPreference:
 def save_environment_preference(
     user_id: int,
     payload: UserEnvironmentPreference,
+    current_user: dict = Depends(get_current_user),
 ) -> UserEnvironmentPreference:
+    _require_self_or_admin(current_user, user_id)
     preference_json = json.dumps(payload.model_dump(), ensure_ascii=False)
     with get_connection() as connection:
         _ensure_user_exists(connection, user_id)

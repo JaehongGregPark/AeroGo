@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:aerogo/main.dart';
+import 'package:aerogo/game/go_engine.dart';
+import 'package:aerogo/models/enums.dart';
 
 void main() {
   test('play alternates turns', () {

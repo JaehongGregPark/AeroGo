@@ -8,6 +8,8 @@ This folder contains the local MySQL database initialization scripts for AeroGo.
 - `02_seed.sql`: Inserts development admin/user accounts and default settings.
 - `03_email_auth_upgrade.sql`: Adds email verification fields/tables for existing databases.
 - `04_public_game_records_seed.sql`: Inserts 500 public professional Go record metadata rows.
+- `05_user_preferences.sql`: Adds the `user_preferences` table for per-user settings.
+- `06_auth_sessions.sql`: Adds the `auth_sessions` table used for login session tokens.
 
 ## Tables
 
@@ -19,6 +21,9 @@ This folder contains the local MySQL database initialization scripts for AeroGo.
 - `ai_analysis`: AI analysis output per game or move.
 - `training_datasets`: Registered SGF/text datasets for future training.
 - `admin_audit_logs`: Administrator action history.
+- `user_preferences`: Per-user key/value settings (for example environment options).
+- `auth_sessions`: Hashed login session tokens issued by `POST /auth/login` and checked by
+  `Authorization: Bearer <token>` on protected endpoints. Revoked on `POST /auth/logout`.
 
 ## Local Startup
 

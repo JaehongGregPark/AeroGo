@@ -25,6 +25,10 @@ class Settings:
         "EMAIL_TOKEN_MAX_AGE_SECONDS",
         60 * 60 * 24,
     )
+    session_max_age_seconds: int = _env_int(
+        "SESSION_MAX_AGE_SECONDS",
+        60 * 60 * 24 * 30,
+    )
 
     mysql_host: str = _env("MYSQL_HOST", "127.0.0.1")
     mysql_port: int = _env_int("MYSQL_PORT", 3306)

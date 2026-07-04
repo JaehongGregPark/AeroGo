@@ -1,30 +1,36 @@
-// This is a basic Flutter widget test.
+// Smoke test for AeroGo's root widget.
 //
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
+// The previous version of this file was the unmodified `flutter create`
+// template: it built `MyApp` and looked for a counter ('0'/'1' text and an
+// add icon). Neither `MyApp` nor a counter exist in this app (the root
+// widget is `AeroGoApp`, defined in lib/app.dart), so the template test
+// did not compile. This replaces it with a real smoke test for AeroGo.
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:aerogo/main.dart';
+import 'package:aerogo/app.dart';
+import 'package:aerogo/models/enums.dart';
+import 'package:aerogo/models/user_environment_settings.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const MyApp());
+  testWidgets('AeroGoApp renders the home page without crashing',
+      (WidgetTester tester) async {
+    final initialEnvironmentSettings = {
+      for (final role in UserRole.values) role: UserEnvironmentSettings.defaults(),
+    };
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    await tester.pumpWidget(
+      AeroGoApp(initialEnvironmentSettings: initialEnvironmentSettings),
+    );
+    await tester.pumpAndSettle();
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    // No uncaught exceptions during build/layout.
+    expect(tester.takeException(), isNull);
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    // The default screen starts on the '대국' (game) menu for a general user.
+    expect(find.text('대국'), findsWidgets);
+
+    // The role/board size/mode summary line should be present.
+    expect(find.textContaining('일반사용자'), findsWidgets);
   });
 }
