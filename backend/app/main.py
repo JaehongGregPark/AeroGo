@@ -7,7 +7,7 @@ from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, EmailStr, Field
 
 from .config import settings
-from .db import get_connection
+from .db import dict_cursor, get_connection
 from .emailer import send_verification_email
 from .security import (
     generate_session_token,
@@ -110,7 +110,7 @@ def _send_signup_verification(connection, user_id: int, email: str) -> str:
 
 
 def _ensure_user_exists(connection, user_id: int) -> None:
-    cursor = connection.cursor(dictionary=True)
+    cursor = dict_cursor(connection)
     cursor.execute("SELECT id FROM users WHERE id = %s", (user_id,))
     user = cursor.fetchone()
     cursor.close()
@@ -156,7 +156,7 @@ def get_current_user(authorization: str | None = Header(default=None)) -> dict:
         )
 
     with get_connection() as connection:
-        cursor = connection.cursor(dictionary=True)
+        cursor = dict_cursor(connection)
         cursor.execute(
             """
             SELECT u.id, u.email, u.role, u.status, u.display_name, u.email_verified
@@ -203,7 +203,7 @@ def register(payload: RegisterRequest) -> dict[str, str]:
     email = normalize_email(str(payload.email))
     username = email
     with get_connection() as connection:
-        cursor = connection.cursor(dictionary=True)
+        cursor = dict_cursor(connection)
         cursor.execute("SELECT id FROM users WHERE email = %s", (email,))
         if cursor.fetchone():
             raise HTTPException(
@@ -223,6 +223,7 @@ def register(payload: RegisterRequest) -> dict[str, str]:
               terms_accepted_at,
               display_name
             ) VALUES (%s, %s, %s, 'user', 'pending_email', FALSE, %s, %s)
+            RETURNING id
             """,
             (
                 username,
@@ -232,7 +233,10 @@ def register(payload: RegisterRequest) -> dict[str, str]:
                 payload.display_name.strip(),
             ),
         )
-        user_id = cursor.lastrowid
+        # psycopg2 has no cursor.lastrowid (that's a mysql-connector attribute) -
+        # RETURNING id above + fetchone() is the Postgres-native way to get the
+        # new row's id from the same INSERT.
+        user_id = cursor.fetchone()["id"]
         verify_url = _send_signup_verification(connection, user_id, email)
         cursor.close()
 
@@ -248,7 +252,7 @@ def register(payload: RegisterRequest) -> dict[str, str]:
 def resend_verification(payload: ResendVerificationRequest) -> dict[str, str]:
     email = normalize_email(str(payload.email))
     with get_connection() as connection:
-        cursor = connection.cursor(dictionary=True)
+        cursor = dict_cursor(connection)
         cursor.execute(
             """
             SELECT id, email_verified, status
@@ -286,7 +290,7 @@ def confirm_email(token: str = Query(min_length=10)) -> str:
     hashed = token_hash(token)
 
     with get_connection() as connection:
-        cursor = connection.cursor(dictionary=True)
+        cursor = dict_cursor(connection)
         cursor.execute(
             """
             SELECT id, used_at, expires_at
@@ -360,7 +364,7 @@ def confirm_email(token: str = Query(min_length=10)) -> str:
 def login(payload: LoginRequest) -> AuthUserResponse:
     email = normalize_email(str(payload.email))
     with get_connection() as connection:
-        cursor = connection.cursor(dictionary=True)
+        cursor = dict_cursor(connection)
         cursor.execute(
             """
             SELECT id, email, password_hash, role, status, display_name, email_verified
@@ -433,7 +437,7 @@ def get_environment_preference(
     _require_self_or_admin(current_user, user_id)
     with get_connection() as connection:
         _ensure_user_exists(connection, user_id)
-        cursor = connection.cursor(dictionary=True)
+        cursor = dict_cursor(connection)
         cursor.execute(
             """
             SELECT preference_value
@@ -476,8 +480,8 @@ def save_environment_preference(
               preference_key,
               preference_value
             ) VALUES (%s, %s, %s)
-            ON DUPLICATE KEY UPDATE
-              preference_value = VALUES(preference_value),
+            ON CONFLICT (user_id, preference_key) DO UPDATE SET
+              preference_value = EXCLUDED.preference_value,
               updated_at = CURRENT_TIMESTAMP
             """,
             (user_id, ENVIRONMENT_PREFERENCE_KEY, preference_json),

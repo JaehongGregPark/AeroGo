@@ -1,0 +1,5 @@
+-- database/mysql/03_email_auth_upgrade.sql 은 users/game_records에 컬럼을 추가하고
+-- email_verification_tokens를 만드는 마이그레이션이었는데, database/postgres/01_schema.sql이
+-- 이미 그 최종 상태를 전부 포함하고 있습니다 (email_verified, source_name 등 처음부터 포함).
+-- 새 Postgres 인스턴스에 처음 적용하는 경우 이 파일은 실행할 게 없습니다 - 파일 번호
+-- 순서를 mysql/ 디렉터리와 맞추기 위해 빈 채로 남겨둡니다.

@@ -1,0 +1,4 @@
+-- database/mysql/05_user_preferences.sql이 만드는 user_preferences 테이블은
+-- database/postgres/01_schema.sql에 이미 포함되어 있습니다 (원본 mysql 쪽도 사실
+-- 01과 05가 같은 테이블을 중복 정의하고 있었음 - CREATE TABLE IF NOT EXISTS라
+-- 무해했을 뿐). 새 Postgres 인스턴스에서는 이 파일은 실행할 게 없습니다.

@@ -30,11 +30,13 @@ class Settings:
         60 * 60 * 24 * 30,
     )
 
-    mysql_host: str = _env("MYSQL_HOST", "127.0.0.1")
-    mysql_port: int = _env_int("MYSQL_PORT", 3306)
-    mysql_database: str = _env("MYSQL_DATABASE", "aerogo")
-    mysql_user: str = _env("MYSQL_USER", "aerogo_app")
-    mysql_password: str = _env("MYSQL_PASSWORD", "change_me_app_password")
+    # 기존엔 MySQL 전용이었으나, 통합 테스트 서버에서 MySQL/Postgres 두 엔진을
+    # 같이 띄우는 대신 Postgres 하나로 EIPQuiz/aura와 통일하기 위해 전환.
+    postgres_host: str = _env("POSTGRES_HOST", "127.0.0.1")
+    postgres_port: int = _env_int("POSTGRES_PORT", 5432)
+    postgres_database: str = _env("POSTGRES_DATABASE", "aerogo")
+    postgres_user: str = _env("POSTGRES_USER", "aerogo_app")
+    postgres_password: str = _env("POSTGRES_PASSWORD", "change_me_app_password")
 
     smtp_host: str = _env("SMTP_HOST", "")
     smtp_port: int = _env_int("SMTP_PORT", 587)
